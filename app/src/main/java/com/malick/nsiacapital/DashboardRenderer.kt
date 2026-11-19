@@ -38,7 +38,7 @@ class DashboardRenderer(
     private val grey = Color.parseColor("#6B7280")
 
     private val summaryLabel = Regex(
-        "valori|total|solde|esp[eè]ce|disponible|plus.?value|moins.?value|\\+/-|performance|avoir|liquidit|encours|net|montant",
+        "valori|total|solde|esp[eè]ce|disponible|plus.?value|moins.?value|\\+/-|performance|avoir|liquidit|encours|net|montant|actions|obligation|opcvm",
         RegexOption.IGNORE_CASE
     )
     private val signedHeader = Regex("plus|moins|variation|var\\.|perf|gain|perte|\\+/-|%", RegexOption.IGNORE_CASE)
@@ -73,12 +73,17 @@ class DashboardRenderer(
 
         renderSummary(store)
 
-        for (page in store.pages.values) {
+        val portfolioFirst = Regex("portefeuille|valorisation|liquidit|compte|position|titres", RegexOption.IGNORE_CASE)
+        val ordered = store.pages.values.sortedBy { p ->
+            val head = p.optString("heading") + " " + p.optString("title") + " " + p.optString("text").take(600)
+            if (portfolioFirst.containsMatchIn(head)) 0 else 1
+        }
+        for (page in ordered) {
             val tables = page.optJSONArray("tables") ?: continue
             val useful = (0 until tables.length()).mapNotNull { tables.optJSONObject(it) }.filter { isUseful(it) }
             if (useful.isEmpty()) continue
             val title = page.optString("heading").ifBlank { page.optString("title") }.ifBlank { "Page" }
-            root.addView(sectionTitle(title))
+            root.addView(sectionTitle(cleanTitle(title)))
             for (t in useful) renderTable(t)
         }
 
@@ -107,6 +112,13 @@ class DashboardRenderer(
                 if (summaryLabel.containsMatchIn(k) && v.any { it.isDigit() } && !found.containsKey(k.lowercase())) {
                     found[k.lowercase()] = "$k\u0000$v"
                 }
+            }
+        }
+        val alloc = Regex("(Actions|Liquidit[ée]s|Obligations|OPCVM)\\s+(\\d+[.,]\\d+\\s?%)", RegexOption.IGNORE_CASE)
+        for (page in store.pages.values) {
+            for (m in alloc.findAll(page.optString("text"))) {
+                val k = "Part " + m.groupValues[1]
+                if (!found.containsKey(k.lowercase())) found[k.lowercase()] = "$k\u0000${m.groupValues[2]}"
             }
         }
         if (found.isEmpty()) return
@@ -144,18 +156,26 @@ class DashboardRenderer(
         return true
     }
 
+    private val junk = Regex("bienvenue|derni[eè]re tentative de connexion|aucune notification", RegexOption.IGNORE_CASE)
+
+    private fun cleanTitle(s: String): String =
+        s.replace(Regex("\\s*Plus\\s*(\\.\\.\\.|…)\\s*$"), "").trim()
+
     private fun renderTable(t: JSONObject) {
         val rows = t.optJSONArray("rows") ?: return
         val list = (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }
         val header: List<String>? = list.firstOrNull { it.optBoolean("h") }?.let { cells(it) }
-        val data = list.filter { !it.optBoolean("h") }.map { cells(it) }.filter { r -> r.any { it.isNotBlank() } }
+        val data = list.filter { !it.optBoolean("h") }.map { cells(it) }
+            .filter { r -> r.any { it.isNotBlank() } }
+            .filter { r -> !junk.containsMatchIn(r.joinToString(" ")) }
+        if (data.isEmpty()) return
 
-        t.optString("title").takeIf { it.isNotBlank() }?.let {
-            root.addView(text(it, 14f, gold, bold = true).apply { setPadding(dp(4), dp(8), 0, dp(2)) })
+        cleanTitle(t.optString("title")).takeIf { it.isNotBlank() }?.let {
+            root.addView(text(it, 15f, gold, bold = true).apply { setPadding(dp(4), dp(10), 0, dp(2)) })
         }
 
-        // Tableau « libellé | valeur » → une seule carte avec des lignes
-        val isKv = header == null && data.isNotEmpty() && data.all { it.count { s -> s.isNotBlank() } <= 2 }
+        // Tableau « libellé | valeur » -> une carte avec des lignes
+        val isKv = header == null && data.all { it.count { s -> s.isNotBlank() } <= 2 }
         if (isKv) {
             val c = card()
             for (r in data.take(60)) {
@@ -167,7 +187,47 @@ class DashboardRenderer(
             return
         }
 
-        // Tableau classique → une carte par ligne
+        // Tableau avec en-tête et peu de colonnes -> grille compacte comme sur le site
+        if (header != null && header.count { it.isNotBlank() } in 2..6) {
+            val keep = header.indices.filter { i -> header[i].isNotBlank() || data.any { it.getOrElse(i) { "" }.isNotBlank() } }
+            val c = card()
+            addInner(c, gridRow(keep.map { header.getOrElse(it) { "" } }, keep.map { header.getOrElse(it) { "" } }, isHeader = true))
+            for (r in data.take(60)) {
+                addInner(c, gridRow(keep.map { r.getOrElse(it) { "" } }, keep.map { header.getOrElse(it) { "" } }, isHeader = false))
+            }
+            root.addView(c)
+            if (data.size > 60) root.addView(text("… et ${data.size - 60} autres lignes", 13f, grey))
+            return
+        }
+
+        // Lignes sans en-tête -> une ligne par élément : libellé à gauche, valeurs à droite
+        if (header == null) {
+            val c = card()
+            for (r in data.take(60)) {
+                val vals = r.filter { it.isNotBlank() && it != "+" && it != "-" }
+                if (vals.isEmpty()) continue
+                val label = vals.firstOrNull { !isNumber(it) } ?: vals[0]
+                val rest = vals.filter { it !== label }
+                val row = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, dp(6), 0, dp(6))
+                }
+                row.addView(text(label, 15f, navy, bold = true).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                val right = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.END
+                }
+                for (v in rest) right.addView(text(v, 15f, colorFor("variation", v, Color.BLACK), bold = isNumber(v)).apply { gravity = Gravity.END })
+                row.addView(right)
+                addInner(c, row)
+            }
+            root.addView(c)
+            return
+        }
+
+        // Grand tableau avec beaucoup de colonnes -> une carte par ligne
         val shown = data.take(100)
         for (r in shown) {
             val c = card()
@@ -175,7 +235,7 @@ class DashboardRenderer(
             addInner(c, text(r.getOrElse(titleIdx) { "" }.ifBlank { "—" }, 16f, navy, bold = true))
             for ((i, v) in r.withIndex()) {
                 if (i == titleIdx || v.isBlank()) continue
-                val label = header?.getOrNull(i)?.ifBlank { null } ?: "Colonne ${i + 1}"
+                val label = header.getOrNull(i)?.ifBlank { null } ?: continue
                 addInner(c, kvLine(label, v))
             }
             root.addView(c)
@@ -183,6 +243,26 @@ class DashboardRenderer(
         if (data.size > shown.size) {
             root.addView(text("… et ${data.size - shown.size} autres lignes (voir l'onglet Espace client)", 13f, grey))
         }
+    }
+
+    private fun gridRow(values: List<String>, headers: List<String>, isHeader: Boolean): View {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        for ((i, v) in values.withIndex()) {
+            val color = when {
+                isHeader -> Color.BLACK
+                i == 0 -> navy
+                else -> colorFor(headers.getOrElse(i) { "" }, v, Color.DKGRAY)
+            }
+            row.addView(text(v, if (isHeader) 13f else 14f, color, bold = isHeader || i == 0).apply {
+                gravity = if (i == 0) Gravity.START else Gravity.END
+                maxLines = 2
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, if (i == 0) 1.4f else 1f)
+            })
+        }
+        return row
     }
 
     private fun pickTitleIndex(header: List<String>?, r: List<String>): Int {
@@ -202,7 +282,12 @@ class DashboardRenderer(
         for (r in list) {
             val c = cells(r).filter { it.isNotBlank() }
             if (c.size == 2) out.add(c[0] to c[1])
-            if (c.size == 4) { out.add(c[0] to c[1]); out.add(c[2] to c[3]) }
+            if (c.size == 4 && !isNumber(c[2])) { out.add(c[0] to c[1]); out.add(c[2] to c[3]) }
+            if (c.size >= 3) {
+                val label = c.firstOrNull { !isNumber(it) && it.length > 1 }
+                val amount = c.firstOrNull { isNumber(it) && !it.endsWith("%") }
+                if (label != null && amount != null) out.add(label to amount)
+            }
         }
         // en-tête + une seule ligne de données → couples en-tête/valeur
         val header = list.firstOrNull { it.optBoolean("h") }?.let { cells(it) }

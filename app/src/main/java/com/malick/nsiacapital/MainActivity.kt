@@ -27,6 +27,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import java.io.File
 
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity(), DashboardRenderer.Actions {
     companion object {
         const val LOGIN_URL = "https://clients.nsiafinance.com/templates/logon/logon.cfm"
         const val BRVM_URL = "https://www.brvm.org/fr/cours-actions/0"
+        const val SIKA_URL = "https://www.sikafinance.com/marches/aaz"
     }
 
     private lateinit var toolbar: MaterialToolbar
@@ -42,6 +44,7 @@ class MainActivity : AppCompatActivity(), DashboardRenderer.Actions {
     private lateinit var dashScroll: ScrollView
     private lateinit var web: WebView
     private lateinit var brvm: WebView
+    private lateinit var brvmBox: View
     private lateinit var nav: BottomNavigationView
 
     private lateinit var store: DataStore
@@ -69,6 +72,21 @@ class MainActivity : AppCompatActivity(), DashboardRenderer.Actions {
         dashScroll = findViewById(R.id.dashScroll)
         web = findViewById(R.id.web)
         brvm = findViewById(R.id.brvm)
+        brvmBox = findViewById(R.id.brvmBox)
+        findViewById<MaterialButtonToggleGroup>(R.id.marketToggle).addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            brvmLoaded = true
+            when (checkedId) {
+                R.id.btnSika -> {
+                    toolbar.title = "Sika Finance"
+                    brvm.loadUrl(SIKA_URL)
+                }
+                else -> {
+                    toolbar.title = "Cours BRVM"
+                    brvm.loadUrl(BRVM_URL)
+                }
+            }
+        }
         nav = findViewById(R.id.nav)
 
         store = DataStore(this)
@@ -96,7 +114,7 @@ class MainActivity : AppCompatActivity(), DashboardRenderer.Actions {
             override fun handleOnBackPressed() {
                 when {
                     web.visibility == View.VISIBLE && web.canGoBack() -> web.goBack()
-                    brvm.visibility == View.VISIBLE && brvm.canGoBack() -> brvm.goBack()
+                    brvmBox.visibility == View.VISIBLE && brvm.canGoBack() -> brvm.goBack()
                     nav.selectedItemId != R.id.nav_dash -> nav.selectedItemId = R.id.nav_dash
                     else -> finish()
                 }
@@ -120,7 +138,7 @@ class MainActivity : AppCompatActivity(), DashboardRenderer.Actions {
     private fun showTab(id: Int) {
         dashScroll.visibility = if (id == R.id.nav_dash) View.VISIBLE else View.GONE
         web.visibility = if (id == R.id.nav_site) View.VISIBLE else View.GONE
-        brvm.visibility = if (id == R.id.nav_brvm) View.VISIBLE else View.GONE
+        brvmBox.visibility = if (id == R.id.nav_brvm) View.VISIBLE else View.GONE
         when (id) {
             R.id.nav_dash -> {
                 toolbar.title = "Mon tableau de bord"
@@ -128,7 +146,7 @@ class MainActivity : AppCompatActivity(), DashboardRenderer.Actions {
             }
             R.id.nav_site -> toolbar.title = "Espace client NSIA"
             R.id.nav_brvm -> {
-                toolbar.title = "Cours BRVM"
+                toolbar.title = "Marchés"
                 if (!brvmLoaded) {
                     brvmLoaded = true
                     brvm.loadUrl(BRVM_URL)
@@ -145,7 +163,7 @@ class MainActivity : AppCompatActivity(), DashboardRenderer.Actions {
                 R.id.action_reload -> {
                     when {
                         web.visibility == View.VISIBLE -> web.reload()
-                        brvm.visibility == View.VISIBLE -> brvm.reload()
+                        brvmBox.visibility == View.VISIBLE -> brvm.reload()
                         else -> renderer.render(store)
                     }
                     true
@@ -342,7 +360,7 @@ class MainActivity : AppCompatActivity(), DashboardRenderer.Actions {
         brvm.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val host = request.url.host ?: return false
-                if (host.endsWith("brvm.org")) return false
+                if (host.endsWith("brvm.org") || host.endsWith("sikafinance.com")) return false
                 openExternal(request.url)
                 return true
             }

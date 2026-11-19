@@ -46,11 +46,47 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
-        <WebView
-            android:id="@+id/brvm"
+        <LinearLayout
+            android:id="@+id/brvmBox"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:visibility="gone" />
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/marketToggle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                app:checkedButton="@+id/btnBrvm"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnBrvm"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="BRVM" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnSika"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Sika Finance" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+
+            <WebView
+                android:id="@+id/brvm"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+        </LinearLayout>
     </FrameLayout>
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
