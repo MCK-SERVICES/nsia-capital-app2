@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/action_reload" android:title="Recharger" app:showAsAction="never" />
+    <item android:id="@+id/action_login" android:title="Page de connexion" app:showAsAction="never" />
+</menu>
